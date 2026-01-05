@@ -1,0 +1,81 @@
+#!/bin/bash
+
+# Reject push if commit author/committer email is not allowed
+
+set -e
+
+if [[ -z ${ALLOWED_EMAILS} ]]
+then
+    echo "*** ALLOWED_EMAILS must be specified" >&2
+    exit 1
+fi
+
+# Zero SHA for detecting new/deleted refs
+ZERO_SHA="0000000000000000000000000000000000000000"
+
+check_email() {
+    local email="$1"
+    if [[ -n $BLOCK_EMAILS ]]
+    then
+        if [[ "$email" =~ $BLOCK_EMAILS ]]
+        then
+            return 1
+        fi
+    fi
+
+    if [[ "$email" =~ $ALLOWED_EMAILS ]]
+    then
+        return 0
+    fi
+    return 1
+}
+
+has_error=0
+
+while read -r local_ref local_sha remote_ref remote_sha
+do
+    # Skip delete operations
+    if [[ "$local_sha" == "$ZERO_SHA" ]]
+    then
+        continue
+    fi
+
+    # Determine commit range
+    if [[ "$remote_sha" == "$ZERO_SHA" ]]
+    then
+        # New branch: check all commits not reachable from any remote branch
+        range="$local_sha --not --remotes"
+    else
+        # Existing branch: check commits between remote and local
+        range="$remote_sha..$local_sha"
+    fi
+
+    # Get commits in the range
+    commits=$(git rev-list $range 2>/dev/null) || continue
+
+    for commit in $commits; do
+        author_email=$(git log -1 --format='%ae' "$commit")
+        committer_email=$(git log -1 --format='%ce' "$commit")
+
+        if ! check_email "$author_email"
+        then
+            echo "*** commit $commit has unauthorized author email: $author_email" >&2
+            has_error=1
+        fi
+
+        if ! check_email "$committer_email"
+        then
+            echo "*** commit $commit has unauthorized committer email: $committer_email" >&2
+            has_error=1
+        fi
+    done
+done
+
+if [[ $has_error -ne 0 ]]
+then
+    echo "Allowed emails: ${ALLOWED_EMAILS}" >&2
+    echo "Block emails: ${BLOCK_EMAILS}" >&2
+    exit 1
+fi
+
+exit 0
