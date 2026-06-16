@@ -10,6 +10,11 @@ then
     exit 1
 fi
 
+# origin
+remote="$1"
+# git@github.com:some-org/some.git
+location="$2"
+
 # Zero SHA for detecting new/deleted refs
 ZERO_SHA="0000000000000000000000000000000000000000"
 
@@ -32,8 +37,11 @@ check_email() {
 
 has_error=0
 
+default_branch=$(git remote show "$remote" | grep 'HEAD branch' | awk '{print $NF}')
+
 while read -r local_ref local_sha remote_ref remote_sha
 do
+	echo "local_sha=$local_sha, local_ref=$local_ref, remote_sha=$remote_sha, remote_ref=$remote_ref" 1>&2
     # Skip delete operations
     if [[ "$local_sha" == "$ZERO_SHA" ]]
     then
@@ -47,7 +55,7 @@ do
         range="$local_sha --not --remotes"
     else
         # Existing branch: check commits between remote and local
-        range="$remote_sha..$local_sha"
+        range="$remote/$default_branch..$local_sha"
     fi
 
     # Get commits in the range
